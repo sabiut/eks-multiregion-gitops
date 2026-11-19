@@ -66,13 +66,17 @@ Six controls, each closing a different gap:
 | --- | --- | --- |
 | Pull request required on `main` | Anyone, including the bot, pushing a change straight in | Branch rule (set up below) |
 | Code owners for `envs/prd/` | A production change merging without a release approver | `.github/CODEOWNERS` |
-| The promotion gate | A version reaching stg that dev has not run, or prd that stg has not run, or Singapore before Sydney | `scripts/check-promotion.sh`, a required check |
+| The promotion gate | A version reaching a stage before the previous stage's promotion is merged: one stage per pull request, in order | `scripts/check-promotion.sh`, a required check |
 | No tag input for stg or prd | Typing an arbitrary tag into a promotion | `scripts/promote.sh` |
 | Argo CD AppProject `apps` | An application chart deploying outside its namespaces or creating cluster-wide objects | `charts/platform-apps/templates/projects.yaml` |
 | Canary with a manual pause in prd Sydney | A bad version reaching every production pod at once | `envs/prd/ap-southeast-2/demo-api.yaml` |
 
 And because the pipeline never holds cluster credentials, there is no way around Git: a
 change made by hand in the cluster is undone by Argo CD (self-heal).
+
+The gate proves the order, not the health: it knows a version was merged for the previous
+stage, not that it ran well there. Looking at dev and stg before promoting is still a person's
+job here.
 
 **Rollback** is `git revert` of the promotion commit, through a pull request. The gate would
 refuse it (the older tag is no longer what stg runs), so add the label `rollback` to the pull

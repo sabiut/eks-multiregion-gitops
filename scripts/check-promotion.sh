@@ -2,8 +2,14 @@
 # The promotion gate. Runs on every pull request as a required check.
 #
 # For each stage whose image tag the pull request changes, the new tag must be the one the
-# stage before it is running. So nothing reaches stg that dev has not run, and nothing
-# reaches production that stg has not run, whoever wrote the pull request and however.
+# stage before it already has on the base branch. So a version moves one stage per merged
+# pull request: nothing reaches stg before dev's change is merged, and nothing reaches
+# production before stg's is, whoever wrote the pull request and however.
+#
+# Limit: "merged" means Argo CD was told to run it, not that it ran well. Checking the
+# rollout's health before promoting needs a view of the cluster, which this repository
+# does not have on purpose. In production that check is a step in the promote workflow
+# (query Argo CD or Prometheus) or an automated analysis in the rollout.
 #
 #   scripts/check-promotion.sh origin/main
 #
@@ -27,7 +33,10 @@ for stage in "${STAGES[@]}"; do
     echo "OK    $stage: $old -> $new (a new build)"
     continue
   fi
-  expected=$(read_tag < "$(stage_file "$from")")
+  # What the stage before is running comes from the BASE branch (what is merged and so
+  # deployed), not from this pull request. Otherwise one pull request could change every
+  # stage to the same new tag and each change would vouch for the next.
+  expected=$(git show "$base:$(stage_file "$from")" 2>/dev/null | read_tag || true)
   if [[ $new == "$expected" ]]; then
     echo "OK    $stage: $old -> $new (the version $from is running)"
   elif [[ ${ALLOW_OUT_OF_ORDER:-0} == 1 ]]; then
