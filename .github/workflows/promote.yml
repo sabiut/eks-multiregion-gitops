@@ -1,0 +1,84 @@
+# Move a version one step: dev -> stg -> prd Sydney -> prd Singapore.
+#
+# The workflow never deploys. It changes one image tag in one file and opens a pull request.
+# Merging the pull request is the release: Argo CD sees the change in Git and applies it.
+#
+#   dev   started by the application repository's pipeline after it pushes a new image.
+#         The pull request merges by itself once the checks pass.
+#   stg   started by hand. Needs one approval from a developer.
+#   prd   started by hand. Needs an approval from a release approver (.github/CODEOWNERS).
+#
+# The pull request is opened as a GitHub App (the "release bot"), not with the workflow's own
+# token, because pull requests opened with that token do not start the validate workflow.
+# The bot is not on the branch rule's bypass list: it can propose, it cannot approve or merge
+# past the rules.
+name: promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      to:
+        description: Stage to promote to
+        type: choice
+        options: [dev, stg, prd-ap-southeast-2, prd-ap-southeast-1]
+        required: true
+      tag:
+        description: Image tag. Only for dev (stg and prd take the version of the stage before)
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote-${{ inputs.to }}
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Token for the release bot
+        id: bot
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.bot.outputs.token }}
+      - name: Change the tag
+        id: change
+        env:
+          TO: ${{ inputs.to }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [[ $TO == dev ]]; then scripts/promote.sh dev "$TAG"; else scripts/promote.sh "$TO"; fi
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Nothing to promote: $TO already runs that version." >> "$GITHUB_STEP_SUMMARY"
+          else
+            source scripts/stages.sh
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "tag=$(read_tag < "$(stage_file "$TO")")" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Open the pull request
+        if: steps.change.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+          TO: ${{ inputs.to }}
+          TAG: ${{ steps.change.outputs.tag }}
+        run: |
+          branch="promote/$TO-$TAG"
+          git config user.name "release-bot"
+          git config user.email "release-bot@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -am "promote: demo $TAG to $TO"
+          git push --force origin "$branch"
+          url=$(gh pr create --base main --head "$branch" \
+            --title "promote: demo $TAG to $TO" \
+            --body "Changes the image tag for \`$TO\` to \`$TAG\`. Merging this is the release: Argo CD applies it within three minutes.")
+          # dev has no code owner, so this merges as soon as the checks pass. For stg and
+          # prd the pull request waits for its approver.
+          [[ $TO == dev ]] && gh pr merge "$url" --auto --squash
+          echo "Opened $url" >> "$GITHUB_STEP_SUMMARY"

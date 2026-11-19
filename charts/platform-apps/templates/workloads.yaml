@@ -1,0 +1,51 @@
+{{- /*
+One Application per workload per environment this cluster hosts. Every environment uses the
+same charts; only the files under its envs/ folder differ. The image tag lives in
+release.yaml there, so "what runs in production" is one line in Git, changed by one reviewed
+pull request.
+*/}}
+{{- range $env, $e := .Values.environments }}
+{{- range $name, $w := $.Values.workloads }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ $name }}-{{ $env }}
+  namespace: argocd
+  labels:
+    environment: {{ $env }}
+    tier: {{ $w.tier }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ $w.wave | quote }}
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: apps
+  source:
+    repoURL: {{ $.Values.repoURL | quote }}
+    targetRevision: {{ $.Values.revision | quote }}
+    path: {{ $w.path }}
+    helm:
+      releaseName: {{ $name }}
+      valueFiles:
+        - ../../{{ $e.dir }}/release.yaml
+        - ../../{{ $e.dir }}/{{ $name }}.yaml
+      valuesObject:
+        {{- tpl (toYaml $w.values) $ | nindent 8 }}
+        environment: {{ $env }}
+        {{- if $.Values.tierNodes }}
+        nodeSelector:
+          tier: {{ $w.tier }}
+        {{- end }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $e.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false   # platform-config owns the namespace and its security labels
+      - SkipDryRunOnMissingResource=true
+{{- end }}
+{{- end }}

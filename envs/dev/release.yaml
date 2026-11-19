@@ -1,0 +1,5 @@
+# dev: every merge to main in the application repository lands here automatically.
+# THE VERSION this environment runs. Both tiers (frontend and backend) use this one tag.
+image:
+  # Written by the promote workflow. Do not edit by hand.
+  tag: "0000000"

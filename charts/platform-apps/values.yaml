@@ -1,0 +1,255 @@
+# Set by the root Application, which Ansible creates in the infra repository:
+repoURL: ""       # this repository
+revision: main
+clusterDir: ""    # clusters/<clusterDir>/
+cluster:          # facts about the cluster, from Terraform's outputs
+  name: ""
+  region: ""
+  accountId: ""
+  registry: ""
+  vpcCidr: ""
+  karpenterQueue: ""
+  karpenterNodeRole: ""
+  veleroBucket: ""
+  vaultKmsAlias: ""
+
+# Which environments of the application this cluster hosts: set in
+# clusters/<cluster>/platform.yaml. Each entry gets a namespace and one Application per
+# workload below, named <workload>-<environment>.
+#   dev: {namespace: demo-dev, dir: envs/dev}
+environments: {}
+
+# true on EKS: each workload is pinned to the nodes of its tier (nodeSelector tier=...).
+# Those nodes sit in that tier's private subnets, and with the VPC CNI a pod's IP address
+# comes from its node's subnet. That is how a pod ends up in the right subnet.
+tierNodes: false
+
+# The application: two of the three tiers. (The third, the database, is RDS, created by
+# Terraform.) The same charts for every environment. For each environment Argo CD reads:
+#   <dir>/release.yaml      the image tag, shared by both tiers. Promotion changes this file.
+#   <dir>/<workload>.yaml   settings for that tier in that environment
+workloads:
+  demo-web:                  # frontend tier: nginx, serves the page, forwards /api/ to the backend
+    tier: frontend
+    path: charts/demo-web
+    wave: 3
+    values:
+      image:
+        repository: "{{ if .Values.cluster.registry }}{{ .Values.cluster.registry }}/{{ end }}demo-web"
+      networkPolicy:
+        # The load balancer lives in the VPC's public subnets.
+        ingressCIDRs:
+          - "{{ .Values.cluster.vpcCidr }}"
+  demo-api:                  # backend tier: the API. The only tier that reaches the database
+    tier: backend
+    path: charts/demo-api
+    wave: 3
+    values:
+      image:
+        repository: "{{ if .Values.cluster.registry }}{{ .Values.cluster.registry }}/{{ end }}demo-api"
+      region: "{{ .Values.cluster.region }}"
+
+# The catalogue: everything a cluster can run, with pinned versions. Each cluster switches
+# entries on or off and overrides values in clusters/<cluster>/platform.yaml.
+# Strings may use {{ .Values.cluster.* }}.
+applications:
+
+  # ---- wave 0: controllers and the resource types (CRDs) they bring ----
+
+  metrics-server:            # CPU and memory per pod, which the HPA reads
+    enabled: true
+    wave: 0
+    repoURL: https://kubernetes-sigs.github.io/metrics-server/
+    chart: metrics-server
+    version: 3.14.0
+    namespace: kube-system
+    values: {}
+
+  external-secrets:          # copies secrets from Vault into Kubernetes Secrets
+    enabled: true
+    wave: 0
+    repoURL: https://charts.external-secrets.io
+    chart: external-secrets
+    version: 2.15.0
+    namespace: external-secrets
+    serverSideApply: true    # its CRDs are too large for client-side apply
+    values:
+      installCRDs: true
+
+  argo-rollouts:             # canary and blue-green releases
+    enabled: true
+    wave: 0
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argo-rollouts
+    version: 2.43.12
+    namespace: argo-rollouts
+    values:
+      dashboard:
+        enabled: false
+
+  aws-load-balancer-controller:   # turns an Ingress into an Application Load Balancer
+    enabled: false
+    wave: 0
+    repoURL: https://aws.github.io/eks-charts
+    chart: aws-load-balancer-controller
+    version: 3.6.3
+    namespace: kube-system
+    values:
+      clusterName: "{{ .Values.cluster.name }}"
+      region: "{{ .Values.cluster.region }}"
+      # Pods cannot reach the instance metadata service, so the controller finds its VPC by name.
+      vpcTags:
+        Name: "{{ .Values.cluster.name }}"
+      replicaCount: 2
+      serviceAccount:
+        name: aws-load-balancer-controller   # matches the Pod Identity association
+
+  karpenter:                 # node autoscaler: launches EC2 instances directly
+    enabled: false
+    wave: 0
+    repoURL: public.ecr.aws/karpenter        # an OCI registry, so no https://
+    chart: karpenter
+    version: 1.15.2
+    namespace: kube-system
+    values:
+      serviceAccount:
+        name: karpenter
+      settings:
+        clusterName: "{{ .Values.cluster.name }}"
+        interruptionQueue: "{{ .Values.cluster.karpenterQueue }}"
+      # Karpenter must not run on nodes it manages itself.
+      nodeSelector:
+        role: system
+      controller:
+        resources:
+          requests: {cpu: 250m, memory: 512Mi}
+          limits: {memory: 512Mi}
+
+  cluster-autoscaler:        # node autoscaler: changes the size of an Auto Scaling group
+    enabled: false
+    wave: 0
+    repoURL: https://kubernetes.github.io/autoscaler
+    chart: cluster-autoscaler
+    version: 9.60.0
+    namespace: kube-system
+    values:
+      awsRegion: "{{ .Values.cluster.region }}"
+      autoDiscovery:
+        clusterName: "{{ .Values.cluster.name }}"
+      rbac:
+        serviceAccount:
+          name: cluster-autoscaler
+      extraArgs:
+        balance-similar-node-groups: true
+        skip-nodes-with-local-storage: false
+        scale-down-unneeded-time: 2m          # lab: remove spare nodes quickly
+
+  velero:                    # scheduled backups of Kubernetes objects to S3
+    enabled: false
+    wave: 0
+    repoURL: https://vmware-tanzu.github.io/helm-charts
+    chart: velero
+    version: 12.2.5
+    namespace: velero
+    values:
+      initContainers:
+        - name: velero-plugin-for-aws
+          image: velero/velero-plugin-for-aws:v1.13.1
+          volumeMounts:
+            - mountPath: /target
+              name: plugins
+      credentials:
+        useSecret: false     # no keys: the pod gets its role from Pod Identity
+      serviceAccount:
+        server:
+          name: velero
+      configuration:
+        backupStorageLocation:
+          - name: default
+            provider: aws
+            bucket: "{{ .Values.cluster.veleroBucket }}"
+            config:
+              region: "{{ .Values.cluster.region }}"
+        volumeSnapshotLocation:
+          - name: default
+            provider: aws
+            config:
+              region: "{{ .Values.cluster.region }}"
+      schedules:
+        demo-daily:
+          schedule: "0 16 * * *"             # 16:00 UTC, early morning in Sydney
+          template:
+            includedNamespaces: [demo]
+            ttl: 168h                        # keep each backup for 7 days
+
+  # ---- wave 1: settings that need those resource types ----
+
+  platform-config:           # namespaces, pod security, RBAC, quotas, Karpenter NodePool
+    enabled: true
+    wave: 1
+    path: charts/platform-config
+    namespace: kube-system
+    # The template adds one namespace per entry in "environments" to these values.
+    environmentNamespaces: true
+    values:
+      cluster:
+        name: "{{ .Values.cluster.name }}"
+        karpenterNodeRole: "{{ .Values.cluster.karpenterNodeRole }}"
+
+  # ---- wave 2: things that need storage or the settings above ----
+
+  vault:                     # secrets manager. Ansible initialises and configures it.
+    enabled: true
+    wave: 2
+    repoURL: https://helm.releases.hashicorp.com
+    chart: vault
+    version: 0.34.1
+    namespace: vault
+    values:
+      injector:
+        enabled: false       # secrets reach pods through External Secrets instead
+      server:
+        serviceAccount:
+          name: vault        # matches the Pod Identity association (KMS access)
+        dataStorage:
+          size: 1Gi
+        # Count a sealed or uninitialised Vault as ready, so Argo CD does not wait for the
+        # Ansible playbook that initialises it.
+        readinessProbe:
+          path: /v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204
+        standalone:
+          enabled: true
+          # LAB PROFILE: one replica, file storage, no TLS inside the cluster.
+          # Production: three or more replicas on integrated (Raft) storage, with TLS.
+          config: |
+            ui = true
+            listener "tcp" {
+              tls_disable     = 1
+              address         = "[::]:8200"
+              cluster_address = "[::]:8201"
+            }
+            storage "file" {
+              path = "/vault/data"
+            }
+            {{- if .Values.cluster.vaultKmsAlias }}
+            # Auto-unseal: Vault asks this KMS key to decrypt its root key at start-up.
+            seal "awskms" {
+              region     = "{{ .Values.cluster.region }}"
+              kms_key_id = "{{ .Values.cluster.vaultKmsAlias }}"
+            }
+            {{- end }}
+
+  kube-prometheus-stack:     # Prometheus, Alertmanager, Grafana and the standard dashboards
+    enabled: false
+    wave: 2
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    version: 93.4.0
+    namespace: monitoring
+    serverSideApply: true
+    values:
+      prometheus:
+        prometheusSpec:
+          retention: 2d      # LAB PROFILE: no volume, short retention
+          resources:
+            requests: {cpu: 200m, memory: 512Mi}

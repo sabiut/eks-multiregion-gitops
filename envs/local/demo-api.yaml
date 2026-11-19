@@ -1,0 +1,8 @@
+# Backend settings for this environment. The version is in release.yaml.
+strategy: canary
+
+topologySpread:
+  enabled: false   # one node, one zone
+
+autoscaling:
+  minReplicas: 4   # enough pods for the canary weights to be visible

@@ -1,0 +1,31 @@
+# Runs on every pull request. Both jobs are required checks on main, so nothing merges
+# unless the charts render and the promotion order is respected.
+name: validate
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint the charts
+        run: helm lint charts/platform-apps charts/platform-config
+      - name: Render every cluster and environment (fails on a broken template or values file)
+        run: scripts/render.sh all
+
+  promotion-order:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: A version may only arrive from the stage before it
+        env:
+          ALLOW_OUT_OF_ORDER: ${{ contains(github.event.pull_request.labels.*.name, 'rollback') && '1' || '0' }}
+        run: scripts/check-promotion.sh "origin/${{ github.base_ref }}"

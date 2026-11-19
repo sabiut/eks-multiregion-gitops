@@ -1,0 +1,4 @@
+# Frontend settings for prd. The version is in release.yaml.
+# Only production is reachable from the internet: this creates the load balancer.
+ingress:
+  enabled: true

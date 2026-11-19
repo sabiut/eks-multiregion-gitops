@@ -1,0 +1,6 @@
+# stg: the rehearsal for production. Same release strategy as production, so the canary
+# itself is tested, but every step continues by itself.
+# THE VERSION this environment runs. Both tiers (frontend and backend) use this one tag.
+image:
+  # Written by the promote workflow. Always a tag that dev is running.
+  tag: "0000000"

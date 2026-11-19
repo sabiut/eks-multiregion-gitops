@@ -1,0 +1,40 @@
+{{- range $name, $ns := .Values.namespaces }}
+---
+# RBAC: a Role lists what may be done; a RoleBinding gives the Role to someone.
+# This Role lets developers look at their application and read its logs. It grants nothing
+# on Secrets, and no way to change or delete anything: changes go through Git.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: developer
+  namespace: {{ $name }}
+rules:
+  - apiGroups: [""]
+    resources: [pods, pods/log, services, endpoints, events, configmaps]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [argoproj.io]
+    resources: [rollouts]
+    verbs: [get, list, watch]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: [get, list, watch]
+---
+# The group "developers" comes from outside Kubernetes. On EKS, an access entry maps an IAM
+# role to this group (developer_principal_arns in the infra repository).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: developers
+  namespace: {{ $name }}
+subjects:
+  - kind: Group
+    name: developers
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: developer
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

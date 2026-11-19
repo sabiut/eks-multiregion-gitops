@@ -1,0 +1,37 @@
+image:
+  repository: ""    # set per cluster by the platform-apps chart (the regional ECR registry)
+  tag: ""           # set in envs/<environment>/release.yaml, by the promote workflow
+  pullPolicy: IfNotPresent
+
+environment: local  # dev, stg or prd: set by the platform-apps chart
+replicas: 2
+containerPort: 8080
+
+# The backend tier's Service, in the same namespace.
+backendURL: http://demo-api:80
+
+resources:
+  requests: {cpu: 50m, memory: 32Mi}
+  limits: {memory: 64Mi}
+
+pdb:
+  minAvailable: 1
+
+# Put the pods on particular nodes. On EKS the platform-apps chart sets {tier: frontend}.
+nodeSelector: {}
+
+networkPolicy:
+  enabled: true
+  # Who may reach the frontend: the load balancer, which sends traffic from inside the VPC.
+  ingressCIDRs: []
+
+# The only way in from the internet. The AWS Load Balancer Controller turns this into an
+# Application Load Balancer in the public subnets.
+ingress:
+  enabled: false
+  className: alb
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip        # straight to pod IPs, no NodePort hop
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'

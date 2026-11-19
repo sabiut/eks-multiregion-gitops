@@ -1,0 +1,41 @@
+{{- if not (has .Values.strategy (list "rolling" "canary" "blueGreen")) }}
+{{- fail "strategy must be rolling, canary or blueGreen" }}
+{{- end }}
+{{- if include "demo-api.isRollout" . }}
+# An Argo Rollout is a Deployment with a richer release strategy. Same pod template.
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+{{- else }}
+apiVersion: apps/v1
+kind: Deployment
+{{- end }}
+metadata:
+  name: {{ .Release.Name }}
+  labels: {{- include "demo-api.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicas }}
+  {{- end }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels: {{- include "demo-api.labels" . | nindent 6 }}
+  strategy:
+    {{- if eq .Values.strategy "rolling" }}
+    # Add one new pod, wait until it is ready, remove one old pod, repeat.
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    {{- else if eq .Values.strategy "canary" }}
+    canary:
+      maxSurge: 1
+      maxUnavailable: 0
+      steps: {{- toYaml .Values.canary.steps | nindent 8 }}
+    {{- else }}
+    blueGreen:
+      activeService: {{ .Release.Name }}
+      previewService: {{ .Release.Name }}-preview
+      autoPromotionEnabled: {{ .Values.blueGreen.autoPromotionEnabled }}
+      scaleDownDelaySeconds: {{ .Values.blueGreen.scaleDownDelaySeconds }}
+    {{- end }}
+  template: {{- include "demo-api.podTemplate" . | nindent 4 }}

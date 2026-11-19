@@ -1,0 +1,25 @@
+cluster:
+  name: ""
+  karpenterNodeRole: ""
+
+# Application namespaces and the Pod Security Standard each one enforces.
+#   privileged  no restrictions (system add-ons only)
+#   baseline    blocks the known privilege escalations
+#   restricted  also requires non-root, no extra capabilities, a seccomp profile
+# Filled in by the platform-apps chart: one namespace per environment the cluster hosts.
+#   demo: {podSecurity: restricted}
+namespaces: {}
+
+# Storage class backed by the EBS CSI driver. EKS only.
+storageClass:
+  enabled: false
+
+# Karpenter's node settings. Only on the cluster that runs Karpenter.
+karpenter:
+  enabled: false
+  tiers: [frontend, backend]       # one NodePool each, in that tier's subnets
+  capacityTypes: [on-demand]       # add "spot" to let Karpenter choose cheaper spot capacity
+  instanceCategories: [c, m, t]
+  cpuLimit: "8"                    # per NodePool: Karpenter stops adding nodes beyond this many vCPUs
+  consolidateAfter: 1m
+  expireAfter: 720h                # replace every node after 30 days, so nodes stay patched

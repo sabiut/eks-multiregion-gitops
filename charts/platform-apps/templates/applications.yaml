@@ -1,0 +1,62 @@
+{{- range $name, $a := .Values.applications }}
+{{- if $a.enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ $name }}
+  namespace: argocd
+  annotations:
+    # Sync waves order the installs: 0 before 1 before 2. Each waits for the one before.
+    argocd.argoproj.io/sync-wave: {{ $a.wave | default 0 | quote }}
+  finalizers:
+    # Deleting the Application also deletes what it installed.
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: {{ $a.project | default "platform" }}
+  source:
+    {{- if $a.path }}
+    # A chart in this repository.
+    repoURL: {{ $.Values.repoURL | quote }}
+    targetRevision: {{ $.Values.revision | quote }}
+    path: {{ $a.path }}
+    {{- else }}
+    # A chart from a public Helm repository, at a pinned version.
+    repoURL: {{ $a.repoURL }}
+    chart: {{ $a.chart }}
+    targetRevision: {{ $a.version | quote }}
+    {{- end }}
+    helm:
+      releaseName: {{ $name }}
+      {{- with $a.valueFiles }}
+      valueFiles:
+        {{- range . }}
+        - {{ tpl . $ }}
+        {{- end }}
+      {{- end }}
+      valuesObject:
+        {{- tpl (toYaml ($a.values | default dict)) $ | nindent 8 }}
+        {{- if and $a.environmentNamespaces $.Values.environments }}
+        namespaces:
+          {{- range $env, $e := $.Values.environments }}
+          {{ $e.namespace }}:
+            podSecurity: {{ $e.podSecurity | default "restricted" }}
+          {{- end }}
+        {{- end }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $a.namespace }}
+  syncPolicy:
+    automated:
+      prune: true      # delete what was removed from Git
+      selfHeal: true   # undo changes made by hand in the cluster
+    syncOptions:
+      - CreateNamespace={{ if eq (toString $a.createNamespace) "false" }}false{{ else }}true{{ end }}
+      {{- if $a.serverSideApply }}
+      - ServerSideApply=true
+      {{- end }}
+      {{- if $a.path }}
+      - SkipDryRunOnMissingResource=true
+      {{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,6 @@
+# kind. Build and load both images first, from the application repository:
+#   docker build -t demo-api:local-1 backend && docker build -t demo-web:local-1 frontend
+#   kind load docker-image demo-api:local-1 demo-web:local-1 --name mr-local
+# THE VERSION this environment runs. Both tiers (frontend and backend) use this one tag.
+image:
+  tag: local-1

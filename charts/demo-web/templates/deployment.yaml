@@ -1,0 +1,58 @@
+# A plain Deployment with a rolling update. The backend chart shows canary and blue-green.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  labels: {{- include "demo-web.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels: {{- include "demo-web.labels" . | nindent 6 }}
+  strategy:
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  template:
+    metadata:
+      labels: {{- include "demo-web.labels" . | nindent 8 }}
+    spec:
+      # The unprivileged nginx image runs as user 101. These settings satisfy the
+      # "restricted" Pod Security Standard the namespace enforces.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile: {type: RuntimeDefault}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: nginx
+          image: {{ required "image.repository is required" .Values.image.repository }}:{{ required "image.tag is required" .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.containerPort }}
+          env:
+            # nginx writes its config from a template at start-up, using this value.
+            - name: BACKEND_URL
+              value: {{ .Values.backendURL | quote }}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          lifecycle:
+            preStop:
+              sleep: {seconds: 5}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            # The root filesystem is read-only. nginx needs these two places to write.
+            - {name: tmp, mountPath: /tmp}
+            - {name: conf, mountPath: /etc/nginx/conf.d}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+        - {name: conf, emptyDir: {}}

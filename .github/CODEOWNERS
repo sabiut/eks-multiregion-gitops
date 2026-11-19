@@ -1,0 +1,19 @@
+# Who must approve a pull request, by path. With the branch rule "Require review from Code
+# Owners" switched on, a pull request cannot merge until an owner of every file it touches
+# has approved it. This file is how production is controlled.
+#
+# Replace the placeholders with real users or teams (@org/team) before switching the rule on.
+# Later lines win over earlier ones.
+
+# The platform: charts, add-on versions, the promotion scripts and this file itself.
+*                       @CHANGE-ME-platform-team
+
+# dev has no owner line: the release bot's pull requests merge by themselves once the
+# checks pass.
+/envs/dev/
+
+# stg: any developer on the team may approve.
+/envs/stg/              @CHANGE-ME-developers
+
+# prd: only release approvers. The bot can open the pull request; it cannot approve it.
+/envs/prd/              @CHANGE-ME-release-approvers

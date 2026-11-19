@@ -1,0 +1,48 @@
+{{- range $name, $ns := .Values.namespaces }}
+---
+# Pod Security Admission reads these labels. "enforce" rejects a pod that breaks the
+# standard; "warn" and "audit" only report, and are useful before tightening "enforce".
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $name }}
+  labels:
+    pod-security.kubernetes.io/enforce: {{ $ns.podSecurity }}
+    pod-security.kubernetes.io/warn: {{ $ns.podSecurity }}
+    pod-security.kubernetes.io/audit: {{ $ns.podSecurity }}
+---
+# Default deny: no pod in the namespace accepts traffic unless another NetworkPolicy allows
+# it. Each application then opens only what it needs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: {{ $name }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+# A ceiling for the whole namespace, so one team cannot take the cluster's capacity.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: compute
+  namespace: {{ $name }}
+spec:
+  hard:
+    requests.cpu: "8"
+    requests.memory: 8Gi
+    pods: "50"
+---
+# Defaults for containers that state no requests or limits of their own.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: defaults
+  namespace: {{ $name }}
+spec:
+  limits:
+    - type: Container
+      defaultRequest: {cpu: 50m, memory: 64Mi}
+      default: {memory: 256Mi}
+{{- end }}

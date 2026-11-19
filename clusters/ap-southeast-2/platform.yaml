@@ -1,0 +1,27 @@
+# Sydney: the primary region. Nodes for applications come from Karpenter.
+applications:
+  aws-load-balancer-controller: {enabled: true}
+  karpenter: {enabled: true}
+  velero: {enabled: true}
+  kube-prometheus-stack: {enabled: true}
+  platform-config:
+    values:
+      storageClass: {enabled: true}
+      karpenter: {enabled: true}
+  vault:
+    values:
+      server:
+        dataStorage: {storageClass: gp3}
+
+# Which environments of the application this cluster hosts. Each gets its own
+# namespace and one Argo CD Application per tier, reading the files in its envs/ folder.
+# LAB: dev and stg share the Sydney cluster as namespaces, to save money. In production
+# they would be separate clusters, usually in separate AWS accounts. The Git layout and
+# the promotion flow are the same either way.
+environments:
+  dev: {namespace: demo-dev, dir: envs/dev}
+  stg: {namespace: demo-stg, dir: envs/stg}
+  prd: {namespace: demo, dir: envs/prd/ap-southeast-2}
+
+# Frontend and backend pods run on separate nodes, in separate private subnets.
+tierNodes: true

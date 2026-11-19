@@ -1,0 +1,41 @@
+# An AppProject is a guardrail: which Git repositories an Application may read, and where it
+# may deploy.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  description: Cluster add-ons, owned by the platform team. May create anything, anywhere.
+  sourceRepos: ["*"]
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: "*"
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: apps
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  description: Application teams. Only this repository, only their namespaces, nothing cluster-wide.
+  sourceRepos:
+    - {{ required "repoURL is required" .Values.repoURL | quote }}
+  destinations:
+    {{- range $env, $e := .Values.environments }}
+    - server: https://kubernetes.default.svc
+      namespace: {{ $e.namespace | quote }}
+    {{- end }}
+  # No clusterResourceWhitelist: a team's chart cannot create namespaces, ClusterRoles or CRDs.
+  namespaceResourceBlacklist:
+    - group: ""
+      kind: ResourceQuota
+    - group: ""
+      kind: LimitRange

@@ -1,0 +1,3 @@
+# Frontend settings for dev. The version is in release.yaml.
+# No load balancer. Reach it with:  kubectl -n demo-dev port-forward svc/demo-web 8080:80
+replicas: 1

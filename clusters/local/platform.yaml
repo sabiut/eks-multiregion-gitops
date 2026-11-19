@@ -1,0 +1,8 @@
+# A kind cluster on a laptop. No AWS: no load balancer controller, node autoscaler or backups.
+applications:
+  metrics-server:
+    values:
+      args: [--kubelet-insecure-tls]   # kind's kubelet certificates are self-signed
+
+environments:
+  local: {namespace: demo, dir: envs/local}

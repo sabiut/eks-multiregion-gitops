@@ -1,0 +1,6 @@
+apiVersion: v2
+name: demo-api
+description: The demo service, with three ways to release it (rolling, canary, blue-green)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

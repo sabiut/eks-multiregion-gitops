@@ -1,0 +1,6 @@
+apiVersion: v2
+name: demo-web
+description: The frontend tier. nginx serves the page and forwards /api/ to the backend
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

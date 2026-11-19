@@ -1,0 +1,79 @@
+image:
+  repository: ""    # set per cluster by the platform-apps chart (the regional ECR registry)
+  tag: ""           # set in envs/<environment>/release.yaml, by the promote workflow
+  pullPolicy: IfNotPresent
+
+region: ""
+environment: local   # dev, stg or prd: set by the platform-apps chart
+containerPort: 8080
+replicas: 2
+
+# How a new version replaces the old one.
+#   rolling    a Deployment. Kubernetes swaps pods a few at a time. No pause, no gate.
+#   canary     an Argo Rollout. A share of the pods gets the new version, then it waits.
+#   blueGreen  an Argo Rollout. A full second copy starts beside the old one; traffic
+#              switches in one step when you promote.
+strategy: canary
+
+canary:
+  # Each setWeight is the share of pods on the new version. An empty pause waits for a
+  # person (or an analysis) to promote; a pause with a duration continues by itself.
+  steps:
+    - setWeight: 25
+    - pause: {}
+    - setWeight: 50
+    - pause: {duration: 60s}
+
+blueGreen:
+  autoPromotionEnabled: false   # wait for a person to switch traffic
+  scaleDownDelaySeconds: 60     # keep the old version this long, for a fast switch back
+
+resources:
+  # requests: what the scheduler reserves. Autoscalers work from requests, not usage.
+  # limits: a memory limit protects the node. No CPU limit, so pods are not throttled.
+  requests: {cpu: 100m, memory: 64Mi}
+  limits: {memory: 128Mi}
+
+# Horizontal Pod Autoscaler: more pods when average CPU passes the target.
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 60
+
+# PodDisruptionBudget: during a node drain (upgrade, Karpenter consolidation), keep at least
+# this many pods running.
+pdb:
+  minAvailable: 1
+
+# Spread pods across zones so losing one zone does not lose them all.
+topologySpread:
+  enabled: true
+
+# Put the pods on particular nodes. On EKS the platform-apps chart sets {tier: backend}.
+nodeSelector: {}
+
+serviceAccount:
+  name: demo-api   # Vault's role is bound to this exact name and namespace
+
+# Secrets come from Vault through the External Secrets Operator.
+vault:
+  enabled: true
+  server: http://vault.vault.svc:8200
+  mount: secret             # the kv-v2 engine
+  path: demo-api/config     # the secret inside it
+  role: demo-api            # the Vault role for this ServiceAccount
+  refreshInterval: 1m       # how often to re-read, so a rotated secret arrives by itself
+
+networkPolicy:
+  enabled: true
+  # Which pods may call the backend: the frontend tier, in the same namespace.
+  fromPodLabels:
+    app.kubernetes.io/name: demo-web
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault

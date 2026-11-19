@@ -1,0 +1,72 @@
+{{- if .Values.karpenter.enabled }}
+{{- /* One EC2NodeClass and one NodePool per tier, so frontend and backend pods get separate
+       nodes in separate private subnets. */}}
+{{- range $tier := .Values.karpenter.tiers }}
+---
+# EC2NodeClass: the AWS side of a node. Which image, which IAM role, which subnets and
+# security groups. They are found by tags Terraform put on them: this class only uses the
+# subnets tagged with its tier.
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: {{ $tier }}
+spec:
+  amiSelectorTerms:
+    - alias: al2023@latest
+  role: {{ required "cluster.karpenterNodeRole is required" $.Values.cluster.karpenterNodeRole | quote }}
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: {{ $.Values.cluster.name | quote }}
+        tier: {{ $tier }}
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: {{ $.Values.cluster.name | quote }}
+  metadataOptions:
+    httpTokens: required
+    httpPutResponseHopLimit: 1
+---
+# NodePool: the Kubernetes side. What kinds of node Karpenter may launch, how many, and when
+# it may remove them. Karpenter picks the cheapest instance type that fits the waiting pods.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: {{ $tier }}
+spec:
+  template:
+    metadata:
+      labels:
+        tier: {{ $tier }}   # workloads choose their tier with nodeSelector tier=...
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: {{ $tier }}
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: [amd64]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: {{ toJson $.Values.karpenter.capacityTypes }}
+        - key: karpenter.k8s.aws/instance-category
+          operator: In
+          values: {{ toJson $.Values.karpenter.instanceCategories }}
+        - key: karpenter.k8s.aws/instance-generation
+          operator: Gt
+          values: ["4"]
+        - key: karpenter.k8s.aws/instance-cpu
+          operator: In
+          values: ["2", "4"]
+      expireAfter: {{ $.Values.karpenter.expireAfter }}
+  limits:
+    cpu: {{ $.Values.karpenter.cpuLimit | quote }}
+  disruption:
+    # Consolidation: when pods would fit on fewer or cheaper nodes, Karpenter moves them and
+    # removes the spare node. PodDisruptionBudgets are respected while it does.
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: {{ $.Values.karpenter.consolidateAfter }}
+    # Never disrupt more than one node at a time.
+    budgets:
+      - nodes: "1"
+{{- end }}
+{{- end }}

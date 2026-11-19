@@ -1,0 +1,5 @@
+# prd, Singapore: the standby region. Gets a version only after Sydney runs it.
+# THE VERSION this environment runs. Both tiers (frontend and backend) use this one tag.
+image:
+  # Written by the promote workflow. Always the tag prd Sydney is running.
+  tag: "0000000"

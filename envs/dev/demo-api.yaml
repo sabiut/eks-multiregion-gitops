@@ -1,0 +1,6 @@
+# Backend settings for this environment. The version is in release.yaml.
+# A plain rolling update. Nothing waits for a person in dev.
+strategy: rolling
+
+autoscaling:
+  maxReplicas: 3

@@ -1,0 +1,11 @@
+# Backend settings for this environment. The version is in release.yaml.
+strategy: canary
+canary:
+  steps:
+    - setWeight: 25
+    - pause: {duration: 60s}
+    - setWeight: 50
+    - pause: {duration: 60s}
+
+autoscaling:
+  maxReplicas: 4

@@ -1,0 +1,3 @@
+# Backend settings for prd in Sydney. The version is in release.yaml.
+# Releases here pause at 25 per cent of pods and wait for a person to promote.
+strategy: canary

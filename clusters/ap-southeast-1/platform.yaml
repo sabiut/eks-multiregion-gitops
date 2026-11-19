@@ -1,0 +1,21 @@
+# Singapore: the standby region. Nodes come from the managed node group, sized by
+# Cluster Autoscaler.
+applications:
+  aws-load-balancer-controller: {enabled: true}
+  cluster-autoscaler: {enabled: true}
+  velero: {enabled: true}
+  kube-prometheus-stack: {enabled: true}
+  platform-config:
+    values:
+      storageClass: {enabled: true}
+  vault:
+    values:
+      server:
+        dataStorage: {storageClass: gp3}
+
+# Production only. See clusters/ap-southeast-2/platform.yaml for dev and stg.
+environments:
+  prd: {namespace: demo, dir: envs/prd/ap-southeast-1}
+
+# Frontend and backend pods run on separate nodes, in separate private subnets.
+tierNodes: true

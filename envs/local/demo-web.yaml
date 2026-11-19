@@ -1,0 +1,2 @@
+# Frontend settings on kind.  kubectl -n demo port-forward svc/demo-web 8080:80
+replicas: 1

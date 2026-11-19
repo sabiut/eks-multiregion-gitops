@@ -1,0 +1,6 @@
+# prd, Sydney: the primary region. Production gets a version first here.
+# THE VERSION this environment runs. Both tiers (frontend and backend) use this one tag.
+image:
+  # Written by the promote workflow. Always a tag that stg is running. The pull request
+  # that changes it needs an approval from a production code owner (.github/CODEOWNERS).
+  tag: "0000000"

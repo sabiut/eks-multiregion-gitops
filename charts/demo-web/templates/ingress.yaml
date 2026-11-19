@@ -1,0 +1,21 @@
+{{- if .Values.ingress.enabled }}
+# The AWS Load Balancer Controller sees this object and creates an Application Load Balancer.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}
+  labels: {{- include "demo-web.labels" . | nindent 4 }}
+  annotations: {{- toYaml .Values.ingress.annotations | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}
+                port:
+                  name: http
+{{- end }}
