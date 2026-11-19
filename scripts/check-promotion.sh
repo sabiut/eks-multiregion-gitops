@@ -13,7 +13,9 @@
 #
 #   scripts/check-promotion.sh origin/main
 #
-# ALLOW_OUT_OF_ORDER=1 turns failures into warnings. The workflow sets it only when the pull
+# It also checks that release.yaml really is what gets deployed (part 1 below). Needs helm.
+#
+# ALLOW_OUT_OF_ORDER=1 turns order failures into warnings (never the part 1 failures). The workflow sets it only when the pull
 # request carries the "rollback" label; the code owner approval is still required.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -21,6 +23,39 @@ source scripts/stages.sh
 
 base=${1:?usage: check-promotion.sh <base ref>}
 failed=0
+
+# ---- Part 1: the release file must be the only place a version can come from ----
+# Helm merges several values files, and a later one wins. If a tag could also be set in a
+# workload's settings file or in a cluster file, the order check below would be looking at
+# one tag while the cluster ran another. So: no "tag:" key anywhere except release.yaml, and
+# then the proof, by rendering each stage the way Argo CD does and reading the images.
+# The same goes for the image repository: only the catalogue may set it.
+key='(^|[{,[:space:]])"?KEY"?[[:space:]]*:'   # block style (tag: x) or flow style ({tag: x})
+others=$( { grep -rnE "${key/KEY/tag}" envs clusters charts/platform-apps/values.yaml | grep -v '/release\.yaml:'
+            grep -rnE "${key/KEY/repository}" envs clusters; } | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' || true)
+if [[ -n $others ]]; then
+  echo "FAIL  an image tag or repository is set outside release.yaml and the catalogue:"
+  echo "$others" | sed 's/^/        /'
+  failed=1
+fi
+
+for stage in "${STAGES[@]}"; do
+  file=$(stage_file "$stage")
+  dir=$(dirname "$file")
+  want=$(read_tag < "$file")
+  for chart in demo-web demo-api; do
+    images=$(helm template "$chart" "charts/$chart" -f "$dir/release.yaml" -f "$dir/$chart.yaml" \
+               --set image.repository="$chart" --set "networkPolicy.ingressCIDRs={10.0.0.0/16}" \
+             | sed -n 's/^[[:space:]]*image:[[:space:]]*"\{0,1\}\([^"[:space:]]*\)"\{0,1\}.*/\1/p' | sort -u)
+    if [[ $images != "$chart:$want" ]]; then
+      echo "FAIL  $stage: $chart would run [$(echo $images)], but release.yaml says $want"
+      failed=1
+    fi
+  done
+done
+[[ $failed == 0 ]] && echo "OK    every stage runs exactly the tag in its release.yaml"
+
+# ---- Part 2: the promotion order ----
 
 for stage in "${STAGES[@]}"; do
   file=$(stage_file "$stage")

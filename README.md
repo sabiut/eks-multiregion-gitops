@@ -60,13 +60,14 @@ which lives in the other files of each `envs/` folder.
 
 ## What controls a production release
 
-Six controls, each closing a different gap:
+Seven controls, each closing a different gap:
 
 | Control | What it stops | Where |
 | --- | --- | --- |
 | Pull request required on `main` | Anyone, including the bot, pushing a change straight in | Branch rule (set up below) |
 | Code owners for `envs/prd/` | A production change merging without a release approver | `.github/CODEOWNERS` |
 | The promotion gate | A version reaching a stage before the previous stage's promotion is merged: one stage per pull request, in order | `scripts/check-promotion.sh`, a required check |
+| One source for the version | A tag set in another values file, which Helm would deploy while the gate looked at `release.yaml` | `scripts/check-promotion.sh`: rejects any other `tag:` and renders every stage to prove the image |
 | No tag input for stg or prd | Typing an arbitrary tag into a promotion | `scripts/promote.sh` |
 | Argo CD AppProject `apps` | An application chart deploying outside its namespaces or creating cluster-wide objects | `charts/platform-apps/templates/projects.yaml` |
 | Canary with a manual pause in prd Sydney | A bad version reaching every production pod at once | `envs/prd/ap-southeast-2/demo-api.yaml` |
