@@ -3,4 +3,4 @@
 # THE VERSION this environment runs. Both tiers (frontend and backend) use this one tag.
 image:
   # Written by the promote workflow. Always a tag that dev is running.
-  tag: "0000000"
+  tag: "14cbf1c"
